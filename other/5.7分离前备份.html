@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script type="text/javascript" src="baowen_core.js"></script>
+    <title>index</title>
+    <!--    转换=>重构=>翻译  -->
+    <!--函数封装层-->
+    <!--目前逻辑--><!--正常语句的 上一跳是0  下一跳就是序号+1  其中begin的上下跳固定 为0 1 end的上下跳固定为0 jump(序号)-->
+    <!--有限循环数组注释  save_loop_for_limited_begin[jump]=[这个参数暂时写死1根据这个判断并列的解析python时传参,当前序号,下一跳,当前函数被调用的次数];-->
+    <!--涉及到条件语句的情况 所有方法新增一个参数判断上条语句是否为条件 此参数由解析python传入 如果上条是if那么下两条下跳改变为条件行序号+3-->
+    <script>
+        //存储模块号;
+        var modular=[];
+        //用户输入
+        var main_txt;//需要解析该python 解析成js的方法
+        //上下跳调用才起作用
+        //jump记录当前顺序
+        var jump=0;// jump为序号
+        var save_baowen=[];//保存报文
+        var save_loop_for_limited_begin=[];//存有限循环信息
+        var loop_for_limited_begin_times=0; //当前有限循环begin是第几次调用 和end做呼应
+        var save_loop_for_limited_end=[];//存有限循环信息
+        var loop_for_limited_end_times=0;   //当前有限循环end是第几次调用 和begin做呼应
+        var save_algorithm_relation_equal=[];//等于运算
+        //记录条件语句的转折行 和 下一跳的值
+        var need_updata=[];
+        //记录关系运算等于函数调用次数
+        var algorithm_relation_equal_times=0;
+        /***
+         * 系统类
+         * begin(char mode)程序开始
+         * end() 程序结束
+         * ***/
+        //开始
+        function begin(){
+            //mode 00:自平衡模式  01:自由控制模式
+            var d1='A1';
+            var d2='01';//mode  01自由控制
+            var d3='0000000000000000';
+            var d4='0'+String(0>>8);//上一跳高字节
+            var d5='0'+String(0&255);//上一跳低字节
+            var d6='0'+String(1>>8);//下一跳高字节
+            var d7='0'+String(1&255);//下一跳低字节
+            //生成报文
+            var result= d1+d2+d3+d4+d5+d6+d7;
+            //上下跳
+                //当前下表为函数执行序号
+                //开始的上一跳就是0 下一跳永远是1
+            save_baowen[jump]=[result];
+            //console.log(save_baowen[jump]);
+            jump++;
+        }
+        //结束
+        function end(down_jump){
+            var d1='A2';
+            var d2='000000000000000000';
+            var d3='0'+String(0>>8);//上一跳高字节
+            var d4='0'+String(0&255);//上一跳低字节
+            var d5=String(down_jump>>8).length > 1 ? parseInt(down_jump>>8).toString(16):'0'+String(down_jump>>8);//下一跳高字节判断长度大于1转16进制否则前面补0
+            var d6=String(down_jump&255).length > 1 ? parseInt(down_jump&255).toString(16):'0'+String(down_jump&255);//下一跳低字节
+            //生成报文
+            var result= d1+d2+d3+d4+d5+d6;
+            //上下跳
+            //当前下表为函数执行序号
+            //存储报文和上一跳序号 和如果纯在的下一跳序号
+            save_baowen[jump]=[result];
+            //console.log(save_baowen[jump]);
+            //end之后应该有jump 归零等操作
+        }
+        /****
+         * 赋值
+         * assignment_value(char variable,int value)   把数值（value）赋值给变量（variable)
+         * assignment_sensor(char variable,char sensor)   把传感器的值赋值给变量（variable)。
+         * assignment_value2sensor(char sensor,char variable)   把变量（variable)的值赋值给传感器（sensor)。
+         * assignment_sensor(char variable1,char variable2)   把变量variable2的值赋值给变量variable1。
+         * assignment_slave_value(char variable,char mode)   从机配置 variable变量号 mode模式
+         * */
+        //赋值 assignment_value(char variable,int value)   把数值（value）赋值给变量（variable)
+        function assignment_value(variable,value){
+            //普通语句 上一跳为0 下一跳为当前序号  jump+1
+                var a="A5";
+                var b="01";
+                var c="赋值";
+                var down_jump=jump+1;
+                var other_result='0'+down_jump;
+                var result=c+other_result;
+                //上一跳为0  正常语句下一跳为即为序号+1jump+1
+                save_baowen[jump]=[result];
+                //console.log(save_baowen[jump]);
+                jump++;
+        }
+        /*****
+         * 关系运算类
+         * algorithm_relation_less(int value_A,int value_B)  小于运算 把 value_A 和value_B 的值做运算，结果为真（1）或者假（0）  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_relation_less_equal(int value_A,int value_B)  小于等于运算 把 value_A 和value_B 的值做运算，结果为真（1）或者假（0）  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_relation_greater(int value_A,int value_B)  大于运算 把 value_A 和value_B 的值做运算，结果为真（1）或者假（0）  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_relation_greater_equal(int value_A,int value_B)  大于等于运算 把 value_A 和value_B 的值做运算，结果为真（1）或者假（0）  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_relation_equal(int value_A,int value_B)  等于运算 把 value_A 和value_B 的值做运算，结果为真（1）或者假（0）  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_relation_unequal(int value_A,int value_B)  不等于运算 把 value_A 和value_B 的值做运算，结果为真（1）或者假（0）  。 value_A 和value_B 可以是下列任意组合。
+         *  */
+        // 等于运算 把 value_A 和value_B 的值做运算，结果为真（1）或者假（0）  。 value_A 和value_B 可以是下列任意组合。
+        function algorithm_relation_equal(value_A,value_B,begin_row,in_row,turn_row){//3,2,4
+            //begin_row开始行行号
+            // in_row内部条数
+            // turn_row转折行行号  转折行下一跳为   行号+全部条数
+            //条件语句 特殊情况上跳为jump+2  下跳为jump+1
+            var equal_begin_row=begin_row;
+            var equal_in_row=in_row;
+            //save_baowen[4];的最后一个字符串需要改为  begin_row+in_row+1的值
+            var equal_turn_row=turn_row;
+            var a="A7";
+            var b="05";
+            var c="关系运算:等于";
+            var up_jump=jump+2;//上跳
+            var down_jump=jump+1;//下跳
+            var result=c+up_jump+down_jump;
+            save_baowen[jump]=[result];
+            //强制修改下两条及jump+1和jump+2的下一跳为jump+3
+            //Q1：怎么找到下两条？
+            //Q2：嵌套怎么办？
+            //记录调用次数
+            need_updata[algorithm_relation_equal_times]=[equal_turn_row,equal_begin_row+equal_in_row+1];//第一个参数是要更改的jump 第二个是要更改的值
+            //console.log(save_baowen[jump]);
+            jump++;
+            algorithm_relation_equal_times++;//函数调用次数
+        }
+        /*****
+         * 特殊传感器类
+         * rocker_control 摇杆控制
+         * equip_motor_control(char speed,int dynamics,char library)      平衡控制指令   speed 表示速度  dynamics表示力度 library表示动作库号
+         * equip_voice_control(char mode,char volume char library,char time)    语音控制指令  mode 表示功能  volume 表示音量 library表示语音库号 time录音时长
+         * equip_voice_mid_control(char tone,char pitch,char midi,int time,int library)    mid控制指令  tone 表示音色和通道  pitch 表示音高 midi表示力度 time表示时间 library表示库号
+         * equip_motor_alone_control(char motornum,char speed,int angle,char library)      单电机控制指令 motornum表示电机标号  speed 表示速度  angle表示角度 library表示动作库号
+         * equip_count_control(char ID,char RESET,char variable,char uint)     计时器控制指令  ID表示计时器选择  RESET表示是否重置计时器  variable表示运行时间结果赋给variable uint控制计时器输出参数的单位
+         * equip_motor_angle_control(char ID,char RESET,char variable,char uint)     角度传感器控制指令  ID表示端口选择  RESET表示是否重置  variable表示结果赋给variable uint输出参数的单位
+         * */
+        //电机转动 equip_motor_alone_control(char motornum,char speed,int angle,char library)
+        // 单电机控制指令 motornum表示电机标号  speed 表示速度  angle表示角度 library表示动作库号
+        function equip_motor_alone_control(new_str){
+            //普通语句 //上一跳为0 下一跳为行号jump+1
+            var d1='2C';//type 2C白电机
+            var d2=new_str;
+            var d3='00';//value_type  0：speed、angle均为数值
+            var d4='00';//wait_or_on 0-不等待 1-等待
+            var d5='00';//sw 0-角度控制 1-时间控制
+            var d6='0000';//两个站位的
+            var d7='0'+String(0>>8);//上一跳高字节
+            var d8='0'+String(0&255);//上一跳低字节
+            var d9=String((jump+1)>>8).length> 1 ? parseInt((jump+1)>>8).toString(16):'0'+String((jump+1)>>8);//下一跳高字节
+            var d10=String((jump+1)&255).length> 1?parseInt((jump+1)&255).toString(16):'0'+String((jump+1)&255);//下一跳低字节
+            /*var other_result='0'+down_jump;*///暂时9+2模式 后两位为上跳下跳
+            var result=d1+d2+d3+d4+d5+d6+d7+d8+d9+d10;
+            save_baowen[jump]=[result];
+            //console.log(save_baowen[jump]);
+            jump++;
+        }
+        /*****
+         * 延时类
+         * delay_100ms(int time)   时间基准100ms，time表示基准的倍数
+         * delay_1s(int time)   时间基准1s，time表示基准的倍数
+         * delay_1min(int time)   时间基准1min，time表示基准的倍数
+         * */
+        function delay_1s(num){
+            //普通语句 //上一跳为0 下一跳为行号jump+1
+            var d1='A4';
+            var d2='02';
+            var d3=String(num>>8).length> 1 ? parseInt(num>>8).toString(16):'0'+String(num>>8);//time高字节
+            var d4=String(num&255).length> 1?parseInt(num&255).toString(16):'0'+String(num&255);//time低字节
+            var d5='00';//time低字节0:time为数值 1:time为变量
+            var d6='0000000000';
+            var d7='0'+String(jump>>8);//上一跳高字节
+            var d8='0'+String(jump&255);//上一跳低字节
+            var d9=String((jump+1)>>8).length> 1 ? parseInt((jump+1)>>8).toString(16):'0'+String((jump+1)>>8);//下一跳高字节
+            var d10=String((jump+1)&255).length> 1?parseInt((jump+1)&255).toString(16):'0'+String((jump+1)&255);//下一跳低字节
+            //var down_jump=jump+1;
+            //var other_result='0'+down_jump;//暂时9+2模式 后两位为上跳下跳
+            var result=d1+d2+d3+d4+d5+d6+d7+d8+d9+d10;
+            save_baowen[jump]=[result];
+            //console.log(save_baowen[jump]);
+            jump++;
+        }
+        /*****
+         * 循环类
+         * loop_forever_begin();  无限循环开始
+         * loop_forever_end();  无限循环结束
+         * loop_for_limited_begin(int indexs)  有限循环开始
+         * loop_for_limited_end()  有限循环结束
+         * loop_for_time_begin(int time)  定时循环开始
+         * loop_for_time_end()  定时循环结束
+         * loop_break()  退出循环
+         * */
+        //有限循环开始
+        function loop_for_limited_begin(times){
+            //循环开始的上一跳为0 下一跳为jump+1
+            var d1='A3';
+            var d2='21';
+            var d3=String(times>>8).length> 1 ? parseInt(times>>8).toString(16):'0'+String(times>>8);//time高字节
+            var d4=String(times&255).length> 1?parseInt(times&255).toString(16):'0'+String(times&255);//time低字节
+            var d5='00';//0:indexs为数值
+            var d6='0000000000';
+            var d7='0'+String(0>>8);//上一跳高字节
+            var d8='0'+String(0&255);//上一跳低字节
+            var d9=String((jump+1)>>8).length> 1 ? parseInt((jump+1)>>8).toString(16):'0'+String((jump+1)>>8);//下一跳高字节
+            var d10=String((jump+1)&255).length> 1?parseInt((jump+1)&255).toString(16):'0'+String((jump+1)&255);//下一跳低字节
+            var result=d1+d2+d3+d4+d5+d6+d7+d8+d9+d10;
+            //下标为序列号
+            save_loop_for_limited_begin[loop_for_limited_begin_times]=[jump,jump+1,loop_for_limited_begin_times+1];
+            //上下跳
+            //当前下表为函数执行序号
+            //resule 为拼接的参数  上跳为0 下一跳为
+            save_baowen[jump]=[result];
+            jump++;
+            loop_for_limited_begin_times++;
+        }
+        //有限循环结束        考虑情况 1.嵌套关系 2.并列关系
+        function loop_for_limited_end(order){
+            //有限循环的结束为 循环开始的序号或者序号+1  下跳为序号jump+1
+            //Q：怎么找到开始的循环的序号
+            //A：找到save_loop_for_limited_begin[jump]  及为开始的调用序号等于结束的调用序号的倒叙（为嵌套准备）
+            //根据那个号取出该end 对应的 开始的jump save_loop_for_limited_begin[jump]
+            var d1='A3';
+            var d2='A1';
+            var d3='0000000000000000';
+            save_loop_for_limited_end[loop_for_limited_end_times]=[order,jump,jump+1,loop_for_limited_end_times+1];
+            //遍历循环开始  save_loop_for_limited_begin 找到loop_for_limited_begin_times中和save_loop_for_limited_end[jump][3]相等的 并返回jump 此序号及为jump
+            //找到上跳 及循环开始时的行号
+            var begin_times=save_loop_for_limited_begin.length-1-loop_for_limited_end_times;
+            // console.log(begin_times);
+            var up_jump=save_loop_for_limited_begin[begin_times][1];//算出此end对应的begin的序号
+            var d4=String(up_jump>>8).length> 1 ? parseInt(up_jump>>8).toString(16):'0'+String(up_jump>>8);//上一跳高字节
+            var d5=String(up_jump&255).length> 1?parseInt(up_jump&255).toString(16):'0'+String(up_jump&255);//上一跳低字节
+            var d6=String((jump+1)>>8).length> 1 ? parseInt((jump+1)>>8).toString(16):'0'+String((jump+1)>>8);//下一跳高字节
+            var d7=String((jump+1)&255).length> 1?parseInt((jump+1)&255).toString(16):'0'+String((jump+1)&255);//下一跳低字节
+            //判断十六进制之后的位数 如果是一位数则补0 这个问题主要出现在下一跳低字节  假设语句数小于255
+            d7=d7.length>1?d7:'0'+d7;
+            /*var other_result=String(up_jump)+down_jump;*/
+            var result=d1+d2+d3+d4+d5+d6+d7;
+            save_baowen[jump]=[result];
+            //console.log(save_loop_for_limited_end);
+            //console.log(save_loop_for_limited_begin);
+            //console.log(up_jump);
+            //console.log(save_baowen[jump]);
+            jump++;
+            loop_for_limited_end_times++;
+        }
+        /*****
+         * 算术逻辑运算类
+         * algorithm_arithmetic_add(int value_A,int value_B,char result_C)  加法运算 把 value_A 和value_B 的值做运算，结果给 result_C  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_arithmetic_sub(int value_A,int value_B,char result_C)  减法运算 把 value_A 和value_B 的值做运算，结果给 result_C  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_arithmetic_multiply(int value_A,int value_B,char result_C)  乘法运算 把 value_A 和value_B 的值做运算，结果给 result_C  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_arithmetic_division(int value_A,int value_B,char result_C)  除法运算 把 value_A 和value_B 的值做运算，结果给 result_C  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_arithmetic_remainder(int value_A,int value_B,char result_C)  求余运算 把 value_A 和value_B 的值做运算，结果给 result_C  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_arithmetic_increment(char result_C)  自增运算 把result_C 的值做运算，结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_decrement(char result_C)  自减运算 把result_C 的值做运算，结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_logic_and(int value_A,int value_B,char result_C)  逻辑与运算 把 value_A 和value_B 的值做运算，结果给 result_C  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_logic_or(int value_A,int value_B,char result_C)  逻辑或运算 把 value_A 和value_B 的值做运算，结果给 result_C  。 value_A 和value_B 可以是下列任意组合。
+         * algorithm_logic_non(int value_A,char result_C)  逻辑非运算  对value_A进行逻辑非运算，结果给 result_C
+         * */
+        /*****
+         * 三角函数类
+         * algorithm_arithmetic_sin(int value_A,char result_C)  正弦运算 把value_A做正弦运算的结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_cos(int value_A,char result_C)  余弦运算 把value_A做正弦运算的结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_tan(int value_A,char result_C)  正切运算 把value_A做正弦运算的结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_asin(int value_A,char result_C)  反正弦运算 把value_A做反正弦运算的结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_acos(int value_A,char result_C)  反余弦运算 把value_A做反余弦运算的结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_atan(int value_A,char result_C)  反正切运算 把value_A做反正切运算的结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_sinh(int value_A,char result_C)  双曲正弦运算 把value_A做双曲正弦运算的结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_cosh(int value_A,char result_C)  双曲余弦运算 把value_A做双曲余弦运算的结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_tanh(int value_A,char result_C)  双曲正切运算 把value_A做双曲正切运算的结果给 result_C  。 注意：result_C仅指变量
+         * */
+        /*****
+         * 一般函数
+         * algorithm_arithmetic_fabs(int value_A,char result_C)  绝对值运算 把value_A的绝对值结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_sqrt(int value_A,char result_C)  平方根运算 把value_A的平方根结果给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_round(int value_A,char result_C)  随机数 产生小于value_A的随机数字，赋值给 result_C  。 注意：result_C仅指变量
+         * algorithm_arithmetic_round(int value_A,int value_B,char result_C)  随机数 产生value_A和value_B之间的随机数字，赋值给 result_C  。 注意：result_C仅指变量
+         * */
+        /*****
+         * 开关类
+         * enable(int name，char num) 使能某个功能   name表示手机，语音，手势等  num表示注册号或者序号
+         * disable(int name，char num) 失能某个功能   name表示手机，语音，手势等  num表示注册号或者序号
+         * */
+        /*****
+         * 输入传感器类
+         * 模板卡牌中，首字节为类型，第2个字节为序号
+         * 一般卡牌中，首字节为注册号,第2个字节位子类别;无特殊说明，num为0
+         * equip_sensor_get()
+         * */
+        /*****
+         * 输出传感器类
+         * equip_lcd_basic_control(char num,char area,char bit int library)   lcd 控制指令  num表示序号或子类别 area表示区码 bit 表示位码  library表示库
+         * equip_lcd_special_control(char num,char x,char y,char stat，char char x,char y,char stat)   lcd 控制指令（用于用户自己定义的图形）  num表示序号或子类别 x表示横坐标即行号 y 表示纵坐标即列号 stat表示状态即亮或灭
+         * equip_motorhub_control() 电机hub控制指令 num表示序号或子类别 motornum表示电机hub的端口号
+         * equip_sensor_control(char type,char num,char d2,char d1,char d0,char library)    通用输出传感器控制指令  type传感器类型 num表示序号或子类别   d2表示有符号型高字节 d1表示有符号型低字节 d0有符号型小数   library表示库号
+         * equip_board_control(char type,char num,char d2,char d1,char d0,char library)   开发板输出传感器控制指令  type传感器类型 num表示序号或子类别   d2表示有符号型高字节 d1表示有符号型低字节 d0有符号型小数   library表示库号
+         * */
+    </script>
+    <!--用户层-->
+    <script>
+       /* begin(1);
+        assignment_value("B",227);//赋值
+        loop_for_limited_begin(3);//有限循环开始 参数为次数
+            algorithm_relation_equal('B',227,3,2,4);//后三个参数依次为开始行号  内部语句条数 转折行
+                equip_motor_alone_control(1,"speed","angle","library");//电机转
+                equip_motor_alone_control(2,"speed","angle","library");//电机转
+        loop_for_limited_end(1);//有限循环结束
+        end();*/
+        //console.log(String(jump)+1);
+        //console.log(save_baowen);
+        //console.log(need_updata);
+        //console.log(save_baowen[4][0]);
+
+        //统一修改转折行  遍历所有报文need_updata中为需要修改的行号和值
+        for(var i=0;i<save_baowen.length;i++){
+           //遍历need_updata
+            for(var j=0;j<need_updata.length;j++){
+                //i就是行号
+                if(i==need_updata[j][0]){
+                    //则修改save_baowen[i][0]的值;  将最后一位去掉 换成need_updata[j][1]
+                    save_baowen[i][0]=save_baowen[i][0].substr(0,save_baowen[i][0].length-1)+need_updata[j][1];
+                }
+            }
+        }
+
+    </script>
+</head>
+<body>
+<div id="baowen"></div>
+<textarea id="main_txt" rows="20" cols="120">
+
+</textarea>
+<button id="tijiao" onclick="do_main()">提交</button>
+</body>
+</html>
+<script>
+    //console.log(save_baowen);将整个报文展现出来
+    for(var m=0;m<save_baowen.length;m++){
+        var baowen = document.getElementById('baowen');//通过id获取div节点对象
+        baowen.innerHTML = baowen.innerHTML +save_baowen[m][0]+'<br>';//在div中追加内容22323
+    }
+</script>
+<script>
+    //处理传过来的python
+    function do_main(){
+        var new_arr=[];//用来存新的分类好的数组
+        main_txt=document.getElementById('main_txt').value;
+        //console.log(main_txt.split("\n"));
+        main_txt=main_txt.split("\n");
+        //这里调用预处理
+        main_txt=preprocessing(main_txt);//返回去掉空白行和注释的数组
+        //遍历数组根据空格分出模块号
+        for(var j=0;j<main_txt.length;j++){
+            if(main_txt[j].indexOf('    ') == -1){
+                //show_arr(main_txt[j]);
+                modular.push(j);//modular数组这是存的是模块开始的行数
+            }
+        }
+        //show_arr(modular);//模块的开始行号[0, 1, 2, 7]
+        //结束行号为数组下一位行号-1
+
+        //A：怎么找到结束行 结束行为下一模块开始行号-1
+        for(var k=0;k<modular.length;k++){
+            if(modular[k]){
+                if(!isNaN(String(modular[k+1]-1))){
+                    //非最后模块
+                    //拼接  模块号.开始行.结束行
+                    modular[k]=String(k)+'.'+String(modular[k])+'.'+String(modular[k+1]-1)
+                }else{
+                    //最后一个模块的结束行为整个数组的长度
+                    modular[k]=String(k)+'.'+String(modular[k])+'.'+String(main_txt.length)
+                }
+            }
+        }
+        //show_arr(modular);
+        //按行分割后 处理每一行 封装成完美数组
+        //判断个数组存的字符串是赋值 or 循环 or 条件
+        //赋值  运算符只有等号再无其他可认定为赋值***********************************************************************************
+        for(var m=0;m<main_txt.length;m++){
+            if(main_txt[m].indexOf('=')!=-1 && main_txt[m].indexOf('if')==-1 && main_txt[m].indexOf('while')==-1 && main_txt[m].indexOf('for')==-1 && main_txt[m].indexOf('+')==-1 && main_txt[m].indexOf('-')==-1 && main_txt[m].indexOf('*')==-1 && main_txt[m].indexOf('/')==-1){
+                //show_arr(main_txt[m]);
+                //因为赋值只有= 所以格局=分割 分割前去掉空格
+                var single_arr_fuzhi=main_txt[m].replace(/ /g,'').split("=");
+                //拼装数组 添加模块
+                new_arr[m]=[m,'assignment_value',single_arr_fuzhi[0],single_arr_fuzhi[1]];//[行号，方法名称,变量，值]
+            }
+        }
+        //while 有关键字while有限循环**************************************************************************************************************
+        //while比较特殊  A:循环不可用  需要判断缩进
+        var while_end_row;
+        for(var w=0;w<main_txt.length;w++){
+            if(main_txt[w].indexOf('while')!=-1 && main_txt[w].indexOf('whilend')==-1){
+                var while_space=['    ','        ','            '];
+                //正则算出循环次数
+                var single_arr_while=main_txt[w].match("\\((.+?)\\)");
+                //算出该while结束行 从这行开始遍历找到第一个没'    '的行号-1
+                if(main_txt[w].indexOf('    ')==-1){//如果while为最外层则没问题否则var while_space=['','    ','        ','            '];//根据组数查询空格数量
+                    for(var w_row=w+1;w_row<main_txt.length; w_row++){
+                        if(main_txt[w_row].indexOf('    ') == -1 && main_txt[w_row].indexOf('whilend') != -1){
+                            while_end_row=w_row;
+                            break;
+                        }
+                    }
+                }else{//这里的while是嵌套的需要处理 //先假设只是一层while前只有一一组‘    ’
+                    //找到下一个非else的行
+                    for(var while_in_row=w+1;while_in_row<main_txt.length;while_in_row++){
+                        if(main_txt[while_in_row].indexOf('else')==-1 && main_txt[while_in_row].indexOf('whilend')!=-1 && main_txt[while_in_row].indexOf('    ')!=-1){//一组空格开头并且不是else
+                            while_end_row=while_in_row;
+                            break;
+                        }
+                    }
+                }
+               /* //判断有没有父亲  判断当前while是否有'    '   //  暂时没写先写简单的
+                if(main_txt[w].indexOf('    ') == -1){
+                    //没空格说明没父亲
+                }else{
+                    //说明有父亲
+                }*/
+                new_arr[w]=[w,'loop_for_limited_begin',single_arr_while[1].replace(/ /g,''),while_end_row];//[行号，方法名称,循环次数,结束行]
+            }
+        }
+        //show_arr(single_arr_while[1]);
+        //show_arr(new_arr);
+        //查找if 首先将该字符串去掉if 去掉: 去掉空格  重点找到结束行转折行和中间行数********************************************************************************
+        var if_parent='';
+        var get_fuhao=[];
+        for(var find_if=0;find_if<main_txt.length;find_if++){
+            //找到有if的语句
+            if(main_txt[find_if].indexOf('if')!=-1){
+                //记录if前的空格数量
+                var space_num=(main_txt[find_if].split('    ')).length-1;
+                //show_arr(space_num);
+                //判断是否有父亲
+                if(main_txt[find_if].indexOf('    ') == -1){
+                    //没空格说明没父亲
+                    if_parent=null;
+                }else{
+                    //有父亲 算出父亲行号 暂时不算暂时写死
+                    if_parent=2;
+                }
+                //去掉空格 if 和:和空壳
+                main_txt[find_if]=main_txt[find_if].replace(/if/g,'').replace(/:/g,'').replace(/ /g,'');
+                //show_arr( main_txt[find_if]);
+                //判断符号是什么 获取if中的条件是什么
+                var all_fuhao=['<','>','==','<=','>='];
+                for(var fuhao=0;fuhao<all_fuhao.length;fuhao++){
+                    if( main_txt[find_if].indexOf(all_fuhao[fuhao])!=-1){
+                        get_fuhao[find_if]=all_fuhao[fuhao];//获取到了符号
+                        break;
+                    }
+                }
+                //show_arr(get_fuhao[find_if]);
+                //根据这个符号分割该if字符串 找到变量和值
+                var single_arr_if=main_txt[find_if].split(get_fuhao[find_if]);
+                //show_arr(single_arr_if);
+                //还需获取转折行和结束行transition_row  end_row
+                var transition_row;
+                var if_end_row;
+                //算出该if结束行 从这行开始遍历找到第一个没'    '的行号-1  space_num为组数
+                //get_space_num
+                var space=['','    ','        ','            '];//根据组数查询空格数量
+                for(var end_row=find_if+1;end_row<=main_txt.length; end_row++){
+                    //if(main_txt[end_row].indexOf(space[space_num-1]) != -1){
+                    //考虑在不在循环内外
+                    if(space_num==0){//无空格则是在自己就是boss
+                        //结束行为第一个无空格行-1
+                        for(var get_boss_if_end=end_row+1;get_boss_if_end<main_txt.length; get_boss_if_end++){
+                            if(main_txt[get_boss_if_end].indexOf('else')!=-1){
+                                transition_row=get_boss_if_end-1;
+                            }
+                            if(main_txt[get_boss_if_end].indexOf('    ')==-1){//找到第一个无'    '的行号 就是结束行
+                                if_end_row=get_boss_if_end+1;
+                                break;
+                            }
+                        }
+                    }else{//若前面有空格则是在循环内
+                        if(main_txt[end_row].indexOf(space[space_num-1]) != -1 && main_txt[end_row].indexOf(space[space_num+1]) == -1){
+                            if(main_txt[end_row].indexOf('else')!=-1){//无else
+                                transition_row=end_row-1;
+                            }
+                            //并且没else
+                            if(main_txt[end_row].indexOf('else')==-1){//无else
+                                if_end_row=end_row-1;
+                                break;
+                            }
+                        }
+                    }
+                }
+                /*show_arr(find_if);//起始行
+                show_arr(if_end_row);//结束行
+                show_arr(transition_row);//转折行*/
+                //找到if语句后第一个统计else
+
+                //暂时先当做等于  根据get_fuhao获取符号调用相应方法
+                new_arr[find_if]=[find_if,'algorithm_relation_equal',get_fuhao[find_if],single_arr_if[0],single_arr_if[1],if_parent,space_num,if_end_row,transition_row];//[行号，方法名称,符号,变量，值,父亲行号,前面空格组数，结束行,转折行]
+            }
+        }
+        //处理else else无需特殊处理只需标记行号即可************************************************************************************************
+        for(var find_else=0;find_else<main_txt.length;find_else++){
+            if(main_txt[find_else].indexOf('else')!=-1){
+                new_arr[find_else]=[find_else,'else'];//[行号，字符串else]
+            }
+        }
+        //处理whilend无需特殊处理只需标记行号即可************************************************************************************************
+        for(var find_whilend=0;find_whilend<main_txt.length;find_whilend++){
+
+            if(main_txt[find_whilend].indexOf('whilend')!=-1){
+                for(var whilend_begin=0;whilend_begin<main_txt.length;whilend_begin++) {
+                    if (new_arr[whilend_begin][1] == 'loop_for_limited_begin' && new_arr[whilend_begin][3]== find_whilend) {
+                        var whilend_begin_row = new_arr[whilend_begin][0];
+                        break;
+                    }
+                }
+                new_arr[find_whilend]=[find_whilend,'whilend',whilend_begin_row];//[行号，字符串else,结束行]
+            }
+
+        }
+        //处理aq语句  识别aq. 获取行号 和方法名称 名称存去掉括号的方法名称
+        for(var find_aq_fun=0;find_aq_fun<main_txt.length;find_aq_fun++){
+            if(main_txt[find_aq_fun].indexOf('aq.')!=-1){
+                var fun_all_name=main_txt[find_aq_fun].replace(/aq./g,'').replace(/ /g,'');
+                var fun_name=fun_all_name.split('(')[0];
+                var parameter=main_txt[find_aq_fun].replace(/ /g,'').match("\\((.+?)\\)")[1];
+                new_arr[find_aq_fun]=[find_aq_fun,fun_name,fun_all_name,parameter];//[行号，方法名称，方法全部字符,参数]
+            }
+        }
+        //处理sleep语句   获取行号 和方法名称
+        for(var find_sleep_fun=0;find_sleep_fun<main_txt.length;find_sleep_fun++){
+            if(main_txt[find_sleep_fun].indexOf('sleep')!=-1){
+                var sleep_times=main_txt[find_sleep_fun].replace(/ /g,'').match("\\((.+?)\\)");
+                new_arr[find_sleep_fun]=[find_sleep_fun,'sleep',sleep_times[1]];//[行号，字符串sleep,睡眠时间]
+            }
+        }
+        //restructure_whilend(new_arr);不能在这里重构要重构需要在开始就重构python语句数组
+        //调用执行函数生成报文
+        create_baowen(new_arr);
+        show_arr(new_arr)
+    }
+    //预处理 去除空白行和注释
+    function preprocessing(arr){
+        var j=0;
+        var new_arr=[];
+        for(var i=0;i<arr.length;i++){
+            if(arr[i]!='' && arr[i].indexOf('#')==-1 ){
+                new_arr[j]=arr[i];
+                j++
+            }
+        }
+        return new_arr;
+    }
+    //打印
+    function show_arr(e){
+        console.log(e)
+    }
+    //创建报文
+    function create_baowen(new_arr){
+        begin();
+        //遍历数组根据new_arr[1]的名称调用相应方法
+        for(var k=0;k<new_arr.length;k++){
+            //show_arr(new_arr[k][1]);
+            switch(new_arr[k][1])
+            {
+                case "loop_for_limited_begin":
+                    loop_for_limited_begin(new_arr[k][2]);
+                    break;
+                case 'sleep':
+                    delay_1s(new_arr[k][2]);
+                    break;
+                case 'equip_motor_alone_control':
+                        //去除引号逗号直接传吧
+                    var new_str=new_arr[k][3].replace(/"/g,'').replace(/'/g,'');
+                    var angle_arr=new_str.split(',');
+                        //一个个判断一个个改
+                    var angle_gao=String(angle_arr[1]).length > 1 ? parseInt(angle_arr[1]).toString(16):'0'+String(angle_arr[1]);
+                    var angle_gao2=String(angle_arr[2]>>8).length > 1 ?parseInt(angle_arr[2]>>8).toString(16):'0'+String(angle_arr[2]>>8);
+                    var angle_di2=String(angle_arr[2]&255).length > 1 ?parseInt(angle_arr[2]&255).toString(16):'0'+String(angle_arr[2]&255);
+                        new_str=angle_arr[0]+angle_gao+String(angle_gao2)+String(angle_di2);
+                        show_arr(new_str);
+                        show_arr(parseInt(angle_arr[1]).toString(16) );
+                    equip_motor_alone_control(new_str);
+                    break;
+                case 'whilend':
+                    loop_for_limited_end();
+                    break;
+                default:
+
+            }
+        }
+        end(new_arr.length+1);
+        //修改转折行  遍历所有报文
+        for(var i=0;i<save_baowen.length;i++){
+            //遍历need_updata
+            for(var j=0;j<need_updata.length;j++){
+                //i就是行号
+                if(i==need_updata[j][0]){
+                    //则修改save_baowen[i][0]的值;  将最后一位去掉 换成need_updata[j][1]
+                    save_baowen[i][0]=save_baowen[i][0].substr(0,save_baowen[i][0].length-1)+need_updata[j][1];
+                }
+            }
+        }
+        for(var m=0;m<save_baowen.length;m++){
+            var baowen = document.getElementById('baowen');//通过id获取div节点对象
+            baowen.innerHTML = baowen.innerHTML +save_baowen[m][0]+'<br>';//在div中追加内容22323
+        }
+
+    }
+    /*var asf=100;
+    show_arr(asf.toString(16));*/
+    /*****************************************************下标可重构但是内容不能 若要重构 解析语句时就得重构************************************************************************/
+   /* //重构的数组while的结束行
+    var restructure_whilend_arr=[];
+    var while_times=0;
+    //将python翻译过来的数组重构 比如去掉else等操作
+    function restructure_whilend(new_arr){
+        //遍历翻译过来的数组主要是将whilend插入
+        for(var i=0;i<new_arr.length;i++){
+            if(restructure_whilend_arr[while_times]){//空才能赋值否则跳过
+                while_times++;
+                i--;
+            }else{
+                //show_arr(new_arr[i][1]) 获取每个数组的名称判断
+                if(new_arr[i][1]=='loop_for_limited_begin'){//如果是循环开始则获取结束
+                    restructure_whilend_arr[while_times]=new_arr[i];//先把开始照常记录
+                    var while_end_row=new_arr[i][3]+1;//算出需要更改的下表为while结束行+1
+                    restructure_whilend_arr[while_end_row]='whilend';//找到并赋值
+                    while_times++;
+                }else{
+                    restructure_whilend_arr[while_times]=new_arr[i];
+                    while_times++
+                }
+            }
+
+        }
+        show_arr(restructure_whilend_arr);
+    }*/
+    //接口归纳
+    /*var val=88;
+    var gao=val>>8;
+    var di=val&255;
+    show_arr(di)*/
+</script>

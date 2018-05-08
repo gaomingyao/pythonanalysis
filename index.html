@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script type="text/javascript" src="./js/baowen_core.js"></script><!--处理报文-->
+    <script type="text/javascript" src="./js/python_core.js"></script><!--处理python-->
+    <script type="text/javascript" src="./js/create_baowen.js"></script><!--处理python-->
+    <title>index</title>
+</head>
+<body>
+<!--报文打印处-->
+<div id="baowen"></div>
+<!--用户输入-->
+<textarea id="main_txt" rows="20" cols="120">
+</textarea>
+<button id="tijiao" onclick="do_main()">提交</button>
+</body>
+</html>
+<script>
+    //打印报文 交给组织检验
+    for(var m=0;m<save_baowen.length;m++){
+        var baowen = document.getElementById('baowen');//通过id获取div节点对象
+        baowen.innerHTML = baowen.innerHTML +save_baowen[m][0]+'<br>';//在div中追加内容22323
+    }
+</script>
