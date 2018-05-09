@@ -12,7 +12,7 @@ var save_loop_for_limited_begin=[]; //存有限循环信息
 var loop_for_limited_begin_times=0; //当前有限循环begin是第几次调用 和end做呼应
 var save_loop_for_limited_end=[]; //存有限循环信息
 var loop_for_limited_end_times=0; //当前有限循环end是第几次调用 和begin做呼应
-/*var save_algorithm_relation_equal=[]; //等于运算*/
+var save_algorithm_relation_equal=[]; //等于运算
 var need_updata=[];//记录条件语句的转折行 和 下一跳的值
 var algorithm_relation_equal_times=0;//记录关系运算等于函数调用次数
 /**
